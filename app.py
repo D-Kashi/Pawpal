@@ -1,4 +1,6 @@
 import streamlit as st
+from datetime import datetime
+from pawpal_system import Owner, Pet, Task, Schedule
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 
@@ -42,6 +44,12 @@ st.subheader("Quick Demo Inputs (UI only)")
 owner_name = st.text_input("Owner name", value="Jordan")
 pet_name = st.text_input("Pet name", value="Mochi")
 species = st.selectbox("Species", ["dog", "cat", "other"])
+gender = st.selectbox("Gender", ["male", "female", "unknown"])
+
+# initialize single-owner slot so UI handlers can use it
+if "owner" not in st.session_state or not isinstance(st.session_state.get("owner"), Owner):
+    st.session_state.owner = Owner(owner_name)
+owner: Owner = st.session_state.owner
 
 st.markdown("### Tasks")
 st.caption("Add a few tasks. In your final version, these should feed into your scheduler.")
@@ -57,10 +65,27 @@ with col2:
 with col3:
     priority = st.selectbox("Priority", ["low", "medium", "high"], index=2)
 
+# Add Pet button: call Owner.add_pet
+if st.button("Add pet"):
+    existing = next((p for p in owner.pets if p.name == pet_name), None)
+    if not existing:
+        new_pet = Pet(name=pet_name, type=species, gender=gender)
+        owner.add_pet(new_pet)
+        st.success(f"Added pet '{pet_name}'")
+    else:
+        st.info(f"Pet '{pet_name}' already exists")
+
+# Add Task button: create Task and add to Owner's schedule
 if st.button("Add task"):
+    # try find pet object by name to associate task
+    pet_obj = next((p for p in owner.pets if p.name == pet_name), None)
+    task = Task(type=task_title, time=datetime.now(), pet=pet_obj)
+    owner.add_task(task)
+    # keep a lightweight UI record for display
     st.session_state.tasks.append(
-        {"title": task_title, "duration_minutes": int(duration), "priority": priority}
+        {"id": task.id, "title": task_title, "duration_minutes": int(duration), "priority": priority, "pet": pet_obj.name if pet_obj else None}
     )
+    st.success(f"Added task '{task_title}'")
 
 if st.session_state.tasks:
     st.write("Current tasks:")
@@ -86,3 +111,12 @@ Suggested approach:
 4. Connect your scheduler here and display results.
 """
     )
+
+# Vault of owners keyed by owner name:
+if "owners" not in st.session_state:
+    st.session_state.owners = {}
+owners: dict = st.session_state.owners
+
+if owner_name not in owners or not isinstance(owners[owner_name], Owner):
+    owners[owner_name] = Owner(owner_name)
+owner_for_name: Owner = owners[owner_name]

@@ -74,44 +74,68 @@ def pet_name(pet):
     return "Unnamed Pet"
 
 if __name__ == "__main__":
-    # Create owner
     owner = Owner("Dusha")
 
-    # Create at least two pets
+    # create pets and attach
     pet1 = Pet("Fido", type="Dog", gender="male") if "type" in Pet.__init__.__code__.co_varnames else Pet("Fido")
     pet2 = Pet("Mittens", type="Cat", gender="female") if "type" in Pet.__init__.__code__.co_varnames else Pet("Mittens")
+    owner.add_pet(pet1)
+    owner.add_pet(pet2)
 
-    # Attach pets to owner
-    if hasattr(owner, "add_pet"):
-        owner.add_pet(pet1)
-        owner.add_pet(pet2)
-    elif hasattr(owner, "pets") and isinstance(owner.pets, list):
-        owner.pets.append(pet1)
-        owner.pets.append(pet2)
-    else:
-        setattr(owner, "pets", [pet1, pet2])
+    # Create Task objects (out of chronological order) — Task.type used as label/title
+    t1 = Task(type="Morning Walk", time="08:00", pet=pet1)
+    t2 = Task(type="Afternoon Meal", time="12:30", pet=pet1)
+    t3 = Task(type="Evening Play", time="18:15", pet=pet2)
+    t4 = Task(type="Midnight Check", time="00:30", pet=pet2)
 
-    # Add at least three tasks with different times
-    t1 = create_task_flexible("Morning Walk", "08:00")
-    t2 = create_task_flexible("Afternoon Meal", "12:30")
-    t3 = create_task_flexible("Evening Play", "18:15")
+    # Add tasks to schedule out of order
+    owner.add_task(t3)
+    owner.add_task(t1)
+    owner.add_task(t4)
+    owner.add_task(t2)
 
-    add_task_to_pet(pet1, t1)
-    add_task_to_pet(pet1, t2)
-    add_task_to_pet(pet2, t3)
+    # Add two tasks at the same time to trigger conflict detection
+    t5 = Task(type="Teeth Brush", time="09:00", pet=pet1)
+    t6 = Task(type="Vet Call", time="09:00", pet=pet2)
+    owner.add_task(t5)
+    owner.add_task(t6)
 
-    # Collect tasks from owner's pets
-    all_tasks = []
-    pets = getattr(owner, "pets", [pet1, pet2])
-    for p in pets:
-        for t in get_pet_tasks(p):
-            all_tasks.append((task_time_key(t), pet_name(p), task_title(t)))
+    # Run lightweight conflict detection and print warnings
+    warnings = owner.schedule.detect_conflicts()
+    if warnings:
+        for w in warnings:
+            print(w)
 
-    # Sort by time
-    all_tasks.sort(key=lambda x: x[0])
+    # Helper to print a list of tasks
+    def print_tasks(title, tasks):
+        print(title)
+        for t in tasks:
+            time_val = getattr(t, "time", None)
+            try:
+                time_str = time_val if isinstance(time_val, str) else time_val.strftime("%H:%M")
+            except Exception:
+                time_str = str(time_val)
+            pet = getattr(t, "pet", None)
+            pet_n = getattr(pet, "name", "Unknown") if pet else "NoPet"
+            label = getattr(t, "type", getattr(t, "title", str(t)))
+            status = "completed" if t.id in owner.schedule.archived_tasks else "pending"
+            print(f"{time_str} - {pet_n} - {label} ({status})")
+        print()
 
-    # Print Today's Schedule
-    print("Today's Schedule")
-    for time_obj, pname, ttitle in all_tasks:
-        time_str = time_obj.strftime("%H:%M") if hasattr(time_obj, "strftime") else str(time_obj)
-        print(f"{time_str} - {pname} - {ttitle}")
+    # Print unsorted pending tasks
+    print_tasks("All pending tasks (insertion order):", owner.schedule.get_pending_tasks())
+
+    # Mark one task completed
+    owner.change_task_status(t2.id, True)
+
+    # Print sorted tasks by time
+    sorted_tasks = owner.schedule.sort_by_time()
+    print_tasks("Pending tasks sorted by time:", sorted_tasks)
+
+    # Print completed tasks via filter
+    completed = owner.schedule.filter_tasks(completed=True)
+    print_tasks("Completed tasks:", completed)
+
+    # Print tasks filtered by pet name
+    fido_tasks = owner.schedule.filter_tasks(pet_name="Fido")
+    print_tasks("Tasks for Fido (any status):", fido_tasks)
