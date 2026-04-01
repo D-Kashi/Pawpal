@@ -1,37 +1,19 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 import uuid
 
-# /c:/Users/dusha/Pawpal/pawpal_system.py
-"""
-Implemented classes for pawpal system.
-Owner -> Schedule -> Task; Tasks archived when completed unless explicitly deleted.
-"""
-
-def _to_time_obj(val):
-    """Normalize various time representations to a time object for ordering."""
-    from datetime import time as _dtime
-
-    if val is None:
-        return datetime.max.time()
-    if isinstance(val, str):
-        try:
-            return datetime.strptime(val, "%H:%M").time()
-        except Exception:
-            pass
-        try:
-            return datetime.fromisoformat(val).time()
-        except Exception:
-            return datetime.max.time()
-    if isinstance(val, datetime):
-        return val.time()
-    # already a time-like object (e.g., datetime.time)
-    try:
-        return val
-    except Exception:
-        return datetime.max.time()
+def _normalize_time(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        for fmt in ("%H:%M", "%Y-%m-%d %H:%M", "%H:%M:%S"):
+            try:
+                return datetime.strptime(value, fmt)
+            except ValueError:
+                continue
+    return datetime.max
 
 @dataclass
 class Pet:
@@ -49,7 +31,6 @@ class Task:
     priority: int = 0
     completed: bool = False
     pet: Optional[Pet] = None
-    frequency: Optional[str] = None
 
     def mark_completed(self) -> None:
         """Mark this task as completed."""
@@ -59,9 +40,6 @@ class Task:
         """Mark this task as incomplete."""
         self.completed = False
 
-def _task_priority_key(task: Task) -> tuple[int, Any]:
-    """Return a sort key for tasks by priority descending, then time ascending."""
-    return (-getattr(task, "priority", 0), _to_time_obj(getattr(task, "time", None)))
 
 @dataclass
 class Schedule:
@@ -182,34 +160,24 @@ class Schedule:
         return sorted(self.tasks, key=_task_priority_key, reverse=reverse)
 
     def detect_conflicts(self) -> List[str]:
-        """Lightweight conflict detection: return warning messages for tasks that share the same time.
-
-        Uses minute-level equality on task time (HH:MM). Returns list of warnings instead of raising.
-        """
-        from collections import defaultdict
-
-        buckets = defaultdict(list)
-        for t in self.tasks:
-            time_obj = _to_time_obj(getattr(t, "time", None))
-            # normalize to hour/minute tuple when possible
-            try:
-                key = (time_obj.hour, time_obj.minute)
-            except Exception:
-                key = str(time_obj)
-            buckets[key].append(t)
+        """Return warnings for active tasks that share the same time."""
+        groups: Dict[str, List[Task]] = {}
+        for task in self.tasks:
+            time_key = (
+                task.time.strftime("%H:%M")
+                if isinstance(task.time, datetime)
+                else str(task.time)
+            )
+            groups.setdefault(time_key, []).append(task)
 
         warnings: List[str] = []
-        for key, group in buckets.items():
-            if len(group) > 1:
-                if isinstance(key, tuple):
-                    time_str = f"{key[0]:02d}:{key[1]:02d}"
-                else:
-                    time_str = str(key)
-                entries = ", ".join(
-                    f"{getattr(x, 'type', getattr(x, 'title', str(x)))}(pet={getattr(x.pet, 'name', 'NoPet')})"
-                    for x in group
+        for time_key, tasks in groups.items():
+            if len(tasks) > 1:
+                labels = ", ".join(
+                    f"{t.type}(pet={t.pet.name if t.pet else 'Unassigned'})"
+                    for t in tasks
                 )
-                warnings.append(f"Warning: conflict at {time_str}: {entries}")
+                warnings.append(f"Warning: conflict at {time_key}: {labels}")
         return warnings
 
 
